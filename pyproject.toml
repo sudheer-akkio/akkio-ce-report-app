@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "ce-pptx-utilies"
+version = "0.1.0"
+description = ""
+authors = ["Sudheer Nuggehalli <129208071+sudheer-akkio@users.noreply.github.com>"]
+readme = "README.md"
+packages = [{include = "ce_pptx_utilies"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+python-pptx = "^1.0.1"
+pandas = "^2.2.2"
+akkio = "^1.0.5"
+requests = "^2.32.3"
+scikit-learn = "^1.5.1"
+plotly = "^5.23.0"
+openpyxl = "^3.1.5"
+streamlit = "^1.37.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
