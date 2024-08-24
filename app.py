@@ -2,6 +2,7 @@ import json
 import os
 import time
 
+import akkio
 import pandas as pd
 import streamlit as st
 
@@ -9,120 +10,243 @@ from src import utils  # Assuming the utils module is available
 from src.utils import PPTXExporter
 
 # Streamlit App
-st.title("Chat Explore Prompt Report Generator")
+st.title("Akkio Automation Utilities")
 
-# Input fields for API Key and Project ID
-API_KEY = st.text_input("Enter API Key", type="password")
+# Create two tabs
+tab1, tab2 = st.tabs(["Prompt Report Generation", "Transform Your Data"])
 
-utils.API_KEY = API_KEY
+with tab1:
 
-project_id = st.text_input("Enter Project ID")
+    # Input fields for API Key and Project ID
+    API_KEY = st.text_input("Enter API Key", type="password", key="api_key_tab1")
 
-# Browse for directory to save responses
-resp_directory = st.text_input(
-    "Enter directory to save artifacts",
-    value="/Users/snuggeha/Documents/Internal-Utilities/ce-pptx-utilies/artifacts",
-)
+    utils.API_KEY = API_KEY
 
-# Ensure directory exists
-if resp_directory and not os.path.exists(resp_directory):
-    st.write("Directory does not exist. Creating directory...")
-    os.makedirs(resp_directory)
+    project_id = st.text_input("Enter Project ID", key="project_key_tab1")
 
-# Upload prompts Excel file
-uploaded_file = st.file_uploader("Upload Excel file with prompts", type="xlsx")
+    # Browse for directory to save responses
+    resp_directory = st.text_input(
+        "Enter directory to save artifacts",
+        value="/Users/snuggeha/Documents/Internal-Utilities/akkio-ce-report-app/artifacts",
+    )
 
-if uploaded_file is not None and resp_directory:
-    try:
-        df = pd.read_excel(uploaded_file)
-        prompts = df.iloc[:, 0].tolist()
-    except Exception as e:
-        st.error(f"Error occurred while importing prompts: {str(e)}")
-        prompts = []
+    # Ensure directory exists
+    if resp_directory and not os.path.exists(resp_directory):
+        st.write("Directory does not exist. Creating directory...")
+        os.makedirs(resp_directory)
 
-if st.button("Create Report Artifacts"):
+    # Upload prompts Excel file
+    uploaded_file = st.file_uploader(
+        "Upload Excel file with prompts", type="xlsx", key="uploader_key_tab1"
+    )
 
-    # Add validation handling so that the user cannot proceed without entering the required fields
-    if not API_KEY or not project_id or not resp_directory or not prompts:
-        st.error("Please fill in all the required fields and upload the prompts file.")
-        st.stop()
+    if uploaded_file is not None and resp_directory:
+        try:
+            df = pd.read_excel(uploaded_file)
+            prompts = df.iloc[:, 0].tolist()
+        except Exception as e:
+            st.error(f"Error occurred while importing prompts: {str(e)}")
+            prompts = []
 
-    # Set up a progress bar
-    progress_bar = st.progress(0)
+    if st.button("Create Report Artifacts"):
 
-    # Set up a placeholder for status messages
-    status_text = st.empty()
+        # Add validation handling so that the user cannot proceed without entering the required fields
+        if not API_KEY or not project_id or not resp_directory or not prompts:
+            st.error(
+                "Please fill in all the required fields and upload the prompts file."
+            )
+            st.stop()
 
-    # Set up a placeholder for error messages
-    error_placeholder = st.empty()
+        # Set up a progress bar
+        progress_bar = st.progress(0)
 
-    # Example loop to demonstrate the progress
-    total_iterations = len(prompts)
-    for i, content in enumerate(prompts):
+        # Set up a placeholder for status messages
+        status_text = st.empty()
 
-        # Update the progress bar with each iteration
-        progress = int((i + 1) / total_iterations * 100)
-        progress_bar.progress(progress)
+        # Set up a placeholder for error messages
+        error_placeholder = st.empty()
 
-        status_text.text(f"Processing prompt {i + 1} of {total_iterations}")
+        # Example loop to demonstrate the progress
+        total_iterations = len(prompts)
+        for i, content in enumerate(prompts):
 
-        creation_resp = utils.create_chat_request(project_id, content)
+            # Update the progress bar with each iteration
+            progress = int((i + 1) / total_iterations * 100)
+            progress_bar.progress(progress)
 
-        task_id = creation_resp["task_id"]
+            status_text.text(f"Processing prompt {i + 1} of {total_iterations}")
 
-        # Set a timeout for 5 minutes (300 seconds)
-        timeout = 300
-        format_type = "plotly_json"
-        start_time = time.time()
+            creation_resp = utils.create_chat_request(project_id, content)
 
-        # Loop until the task status is "SUCCEEDED"
-        while True:
-            status = utils.check_task_status(task_id)
-            if status["status"] == "SUCCEEDED":
-                chat_id = status["metadata"]["location"].split("/chats/")[1]
-                chat_response = utils.get_chat_results(chat_id, format_type)
+            task_id = creation_resp["task_id"]
 
-                # File path with project_id and task_id
-                file_name = f"project_{project_id}_taskid_{task_id}"
-                file_path = os.path.join(resp_directory, file_name)
+            # Set a timeout for 5 minutes (300 seconds)
+            timeout = 300
+            format_type = "plotly_json"
+            start_time = time.time()
 
-                utils.process_chat_output(chat_response, file_path)
-                break
+            # Loop until the task status is "SUCCEEDED"
+            while True:
+                status = utils.check_task_status(task_id)
+                if status["status"] == "SUCCEEDED":
+                    chat_id = status["metadata"]["location"].split("/chats/")[1]
+                    chat_response = utils.get_chat_results(chat_id, format_type)
 
-            elif status["status"] == "FAILED":
-                error_placeholder.error("Task failed.")
-                break
+                    # File path with project_id and task_id
+                    file_name = f"project_{project_id}_taskid_{task_id}"
+                    file_path = os.path.join(resp_directory, file_name)
 
-            elif time.time() - start_time > timeout:
-                error_placeholder.error("Task timed out.")
-                break
+                    utils.process_chat_output(chat_response, file_path)
+                    break
 
-            # Wait for some time before checking again to avoid overwhelming the server
-            time.sleep(5)
+                elif status["status"] == "FAILED":
+                    error_placeholder.error("Task failed.")
+                    break
 
-    # Display a message when done
-    st.success("Processing complete!")
+                elif time.time() - start_time > timeout:
+                    error_placeholder.error("Task timed out.")
+                    break
 
-# Text box to name presentation
-output_filename = st.text_input("Enter PPTX filename", value="output_deck.pptx")
+                # Wait for some time before checking again to avoid overwhelming the server
+                time.sleep(5)
 
-if st.button("Export to PPTX"):
+        # Display a message when done
+        st.success("Processing complete!")
 
-    # Add validation handling so that the user cannot proceed without entering the required fields
-    if not API_KEY or not project_id or not resp_directory or not prompts:
-        st.error("Please fill in all the required fields and upload the prompts file.")
-        st.stop()
+    # Text box to name presentation
+    output_filename = st.text_input("Enter PPTX filename", value="output_deck.pptx")
 
-    # Setup
-    pptx_filepath = os.path.join(resp_directory, output_filename)
+    if st.button("Export to PPTX"):
 
-    # Initialize object
-    obj = PPTXExporter(resp_directory)
+        # Add validation handling so that the user cannot proceed without entering the required fields
+        if not API_KEY or not project_id or not resp_directory or not prompts:
+            st.error(
+                "Please fill in all the required fields and upload the prompts file."
+            )
+            st.stop()
 
-    # Create slides
-    obj.create()
+        # Setup
+        pptx_filepath = os.path.join(resp_directory, output_filename)
 
-    obj.save(pptx_filepath)
+        # Initialize object
+        obj = PPTXExporter(resp_directory)
 
-    # Display a message when done
-    st.success("PPTX export complete!")
+        # Create slides
+        obj.create()
+
+        obj.save(pptx_filepath)
+
+        # Display a message when done
+        st.success("PPTX export complete!")
+
+
+with tab2:
+
+    # Input fields for API Key and Project ID
+    API_KEY = st.text_input("Enter API Key", type="password", key="api_key_tab2")
+
+    utils.API_KEY = API_KEY
+    akkio.api_key = API_KEY
+
+    project_id = st.text_input(
+        "Enter Deployed Transform Project ID", key="project_key_tab2"
+    )
+
+    project_name = st.text_input("Enter New Project Name", key="project_name_tab2")
+
+    # Upload input data
+    uploaded_file = st.file_uploader(
+        "Upload Data", type=["xlsx", "csv"], key="uploader_key_tab2"
+    )
+
+    if uploaded_file is not None and resp_directory:
+        try:
+            file_name = os.path.splitext(uploaded_file.name)[0]
+            file_extension = os.path.splitext(uploaded_file.name)[1]
+            if file_extension == ".xlsx":
+                df = pd.read_excel(uploaded_file)
+            elif file_extension == ".csv":
+                df = pd.read_csv(uploaded_file)
+            else:
+                st.error(
+                    "Invalid file format. Please upload either an Excel file (.xlsx) or a CSV file (.csv)."
+                )
+                df = None
+            # df = utils.import_data(uploaded_file.name)
+        except Exception as e:
+            st.error(f"Error occurred while importing data: {str(e)}")
+            df = None
+
+    predict_field = st.text_input("Enter Predict Field")
+
+    if st.button("Transform Data"):
+        # Add validation handling so that the user cannot proceed without entering the required fields
+        if not API_KEY or not project_id or not project_name or not uploaded_file:
+            st.error(
+                "Please fill in all the required fields and upload data to be transformed."
+            )
+            st.stop()
+
+        # Set up a progress bar
+        progress_bar = st.progress(0)
+
+        # Set up a placeholder for status messages
+        status_text = st.empty()
+
+        # Set up a placeholder for error messages
+        error_placeholder = st.empty()
+
+        status_text.text("Transforming data...")
+
+        transformed_df = utils.transform_data(
+            project_id, utils.df_to_dict(df), save=False
+        )
+
+        # Update progress bar to 50%
+        progress_bar.progress(50)
+
+        # Create and add rows to dataset -- create new utility function
+        # file_name = os.path.splitext(uploaded_file.name)[0]
+
+        # dataset_name = file_name + "_transformed"
+
+        status_text.text(f"Creating project with project name: {project_name}...")
+
+        transformed_dataset_id = utils.create_dataset(project_name, transformed_df)
+
+        # Train ML Model
+        # (Train a dummy model to force project creation in the UI (I know this is suboptimal, but we will optimize this out in our v2 API))
+
+        # UI Mapping:
+        #     1    = Super Fast (Do not recommend)
+        #     10   = Fastest
+        #     60   = High Quality
+        #     300  = Higher Quality
+        #     1800 = Production
+
+        training_mode = 1
+        predict_field = [predict_field]
+        ignore_fields = []
+
+        new_model = akkio.create_model(
+            transformed_dataset_id,
+            predict_field,
+            ignore_fields,
+            {"duration": training_mode, "extra_attention": False},
+        )
+
+        if new_model["status"] != "success":
+            raise ValueError(
+                f"Project creation failed due to model training error. Model training details: {new_model}"
+            )
+
+        # Update progress bar to 100%
+        progress_bar.progress(100)
+
+        # Display a message when done
+        st.success("Processing complete!")
+
+        # grab project id from new_model
+        transformed_project_id = new_model["model_id"]
+
+        st.write(f"New Project ID: {transformed_project_id}")

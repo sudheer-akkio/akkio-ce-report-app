@@ -2,6 +2,7 @@ import json
 import os
 import time
 
+import akkio
 import pandas as pd
 import plotly.io as pio
 import requests
@@ -178,7 +179,7 @@ def df_to_dict(df):
     """
     # Convert all data in the DataFrame to strings (force conversion to string since
     # we implicitely cast to the correct DType when generating the dataset view)
-    df = df.applymap(str)
+    df = df.map(str)
 
     # Convert DataFrame to a list of dictionaries
     dict_list = df.to_dict(orient="records")
@@ -308,16 +309,16 @@ def make_prediction(
             f"Error from API: {resp_dict.get('message', 'No error message provided')}"
         )
 
+    if "predictions" in resp_dict.keys():
+        df = pd.DataFrame(resp_dict["predictions"])
+    else:
+        df = pd.DataFrame(resp_dict)
+
     if save:
         if not save_file_path:
             save_file_path = "predictions.csv"
 
         print(f"Saving prediction to disk to {save_file_path}")
-
-        if "predictions" in resp_dict.keys():
-            df = pd.DataFrame(resp_dict["predictions"])
-        else:
-            df = pd.DataFrame(resp_dict)
 
         df.to_csv(save_file_path, index=False)
 
@@ -373,6 +374,109 @@ def set_dataset_fields(dataset_id, fields):
     )
 
     return response.json()
+
+
+def transform_data(project_id, input_data, save=False, save_file_path=""):
+    """
+    Make API request for data transformation
+
+    Returns:
+        dict: json response
+    """
+    start_time = time.time()
+
+    response = requests.post(
+        "{}://{}:{}/{}/models".format(PROTOCOL, URL, PORT, VERSION),
+        json={
+            "api_key": API_KEY,
+            "id": project_id,
+            "data": input_data,
+            "deploy-transforms-only": "true",
+        },
+        timeout=120,
+    )
+
+    end_time = time.time()
+
+    elapsed_time = end_time - start_time
+
+    print(
+        f"Request to transform data using project: {project_id} for input data with {len(input_data)} samples completed in {elapsed_time:.4f} seconds."
+    )
+
+    # Check for HTTP errors
+    response.raise_for_status()
+
+    # Parse JSON response
+    resp_dict = response.json()
+
+    if "predictions" in resp_dict.keys():
+        df = pd.DataFrame(resp_dict["predictions"])
+    else:
+        df = pd.DataFrame(resp_dict)
+
+    if save:
+        if not save_file_path:
+            save_file_path = "transformed_data.csv"
+
+        print(f"Saving transformed dataset to disk to {save_file_path}")
+
+        df.to_csv(save_file_path, index=False)
+
+        print("Done!")
+
+    return df
+
+
+def create_dataset(dataset_name, input_df):
+    # Create dataset based on train partition and add rows
+    print("Create Akkio dataset object with imported data...")
+
+    # Do multiple dataset name check here to avoid creating unnecessary datasets
+    datasets = akkio.get_datasets()["datasets"]
+    dataset_df = pd.DataFrame(datasets)
+
+    if dataset_name in dataset_df["name"].values:
+        raise ValueError(
+            "Error: Multiple datasets with the same name found. Please specify a unique dataset name."
+        )
+
+    new_dataset = akkio.create_dataset(dataset_name)
+
+    # Add rows to new dataset
+    add_rows_to_dataset(new_dataset["dataset_id"], df_to_dict(input_df))
+
+    time.sleep(5)  # Pause for operation completion
+
+    # get master dataset id after append
+    # Won't need this once we can create dataset with file upload in one step
+    new_dataset_id = update_dataset_id(new_dataset)
+
+    print(f"Dataset is ready with id: {new_dataset_id}")
+
+    return new_dataset_id
+
+
+def update_dataset_id(dataset_obj):
+
+    old_dataset_id = dataset_obj["dataset_id"]
+
+    datasets = akkio.get_datasets()["datasets"]
+    df = pd.DataFrame(datasets)
+
+    # Filter the DataFrame to get the list of IDs for the specified dataset name
+    id_list = df.loc[df["name"] == dataset_obj["dataset_name"], "id"].tolist()
+
+    # Find the new master ID by excluding the current dataset_id
+    new_master_id = [id for id in id_list if id != old_dataset_id]
+
+    # Check if there is exactly one other dataset ID
+    if len(new_master_id) != 1:
+        raise ValueError(
+            "Error: Multiple datasets with the same name found. Please specify a unique dataset name."
+        )
+
+    return new_master_id[0]
 
 
 class PPTXExporter:
